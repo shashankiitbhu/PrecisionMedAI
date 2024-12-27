@@ -1,10 +1,14 @@
 const express = require("express");
 const mongoose = require("mongoose");
 const cors = require("cors");
-require("dotenv").config();
+const axios = require('axios');
+
+require('dotenv').config();
+const FDA_API_URL = process.env.FDA_API_URL;
+const FDA_API_KEY = process.env.FDA_API_KEY;
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 5001;
 
 // Middleware
 app.use(cors());
@@ -18,5 +22,20 @@ mongoose.connect(process.env.MONGO_URI, { useNewUrlParser: true, useUnifiedTopol
 // Routes
 app.use("/api/drugs", require("./routes/drugs"));
 
+app.get('/api/drugs/search', async (req, res) => {
+  const { name } = req.query;
+  try {
+    const response = await axios.get(`${FDA_API_URL}/drug/event.json`, {
+      params: { search: name, limit: 10 },
+    });
+    res.json(response.data);
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to fetch data' });
+  }
+});
+
 // Start Server
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+//TODO:
+//Store Data for Engineering: Set up MongoDB to save fetched data for further processing.
+//Enhance API: Build filters (e.g., by date, severity, etc.) to refine results.
