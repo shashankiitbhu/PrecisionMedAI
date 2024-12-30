@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Card, CardHeader, CardContent } from './ui/card';
 import { CheckCircleIcon } from '@heroicons/react/solid';
-
+import { getDatabase, ref, onValue, update } from "firebase/database";
+import { db } from '../firebase';
 
 const Timetable = () => {
   const days = ['Time', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
@@ -74,16 +75,28 @@ const Timetable = () => {
   };
 
   const [schedule, setSchedule] = useState(initialSchedule);
-  const [counts, setCounts] = useState(() => {
-    const initialCounts = {};
-    Object.keys(courseColors).forEach(course => {
-      initialCounts[course] = { total: 0, present: 0 };
-    });
-    return initialCounts;
-  });
-
+  const [counts, setCounts] = useState({});
   const [currentDate, setCurrentDate] = useState(new Date());
-  const [countedSlots, setCountedSlots] = useState({});
+
+  useEffect(() => {
+    const scheduleRef = ref(db, "schedule");
+    onValue(scheduleRef, (snapshot) => {
+      const fetchedData = snapshot.val() || {};
+      const mergedSchedule = Object.keys(initialSchedule).reduce((acc, day) => {
+        acc[day] = { ...initialSchedule[day], ...(fetchedData[day] || {}) };
+        return acc;
+      }, {});
+      setSchedule(mergedSchedule);
+    });
+  }, []);
+
+  useEffect(() => {
+    const countsRef = ref(db, 'attendance');
+    onValue(countsRef, (snapshot) => {
+      const data = snapshot.val() || {};
+      setCounts(data);
+    });
+  }, []);
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -93,33 +106,28 @@ const Timetable = () => {
     return () => clearInterval(timer);
   }, []);
 
-  useEffect(() => {
-    const newCountedSlots = {};
-    const updatedCounts = { ...counts };
-  
-    Object.entries(schedule).forEach(([day, times]) => {
-      Object.entries(times).forEach(([time, course]) => {
-        if (course && course !== 'Done' && isPast(day, time)) {
-          const key = `${day}-${time}`;
-          if (!countedSlots[key]) {
-            updatedCounts[course].total += 1;
-            newCountedSlots[key] = true;
-          }
-        }
-      });
-    });
-  
-    setCounts((prev) => ({
-      ...prev,
-      ...updatedCounts,
-    }));
-    setCountedSlots((prev) => ({
-      ...prev,
-      ...newCountedSlots,
-    }));
-  }, [currentDate]);
-  
-  
+  const handleClick = (day, time) => {
+    const course = schedule[day]?.[time];
+    if (!course || course === "Done") return;
+
+    const updates = {
+      [`schedule/${day}/${time}`]: "Done",
+      [`attendance/${course}/present`]: (counts[course]?.present || 0) + 1,
+    };
+
+    update(ref(db), updates)
+      .then(() => {
+        console.log("Schedule and attendance updated");
+        setSchedule((prev) => ({
+          ...prev,
+          [day]: {
+            ...prev[day],
+            [time]: "Done", 
+          },
+        }));
+      })
+      .catch((error) => console.error("Failed to update:", error));
+  };
 
   const isPast = (day, time) => {
     const now = new Date();
@@ -135,108 +143,90 @@ const Timetable = () => {
       startMinute
     );
 
-    console.log(`isPast for ${day} ${time}: `, blockDate < now);
     return blockDate < now;
-  };
-
-  const handleClick = (day, time) => {
-    console.log(`Click on ${day} ${time}`);
-    if (!isPast(day, time)) return;
-  
-    const course = schedule[day]?.[time];
-    if (!course || course === 'Done') return;
-  
-    setSchedule((prev) => {
-      const updated = { ...prev };
-      updated[day][time] = 'Done';
-      return updated;
-    });
-  
-    setCounts((prev) => {
-      const updatedCounts = { ...prev };
-      if (updatedCounts[course]) {
-        updatedCounts[course].present += 1;
-      }
-      return updatedCounts;
-    });
-  };
-  
-  
-  
-
-  const calculateAttendance = course => {
-    if (counts[course].total === 0) return 0;
-    return ((counts[course].present / counts[course].total) * 100).toFixed(2);
   };
 
   return (
     <Card className="w-full max-w-6xl">
-      <CardHeader className="bg-gray-50 rounded-t-lg">
-        <div className="text-center text-xl font-semibold">
-          {currentDate.toLocaleDateString()} {currentDate.toLocaleTimeString()}
-        </div>
-      </CardHeader>
-      <CardContent className="p-4">
-        <div className="overflow-x-auto">
-          <table className="w-full border-collapse">
-            <thead>
-              <tr>
-                {days.map(day => (
-                  <th key={day} className="border bg-gray-800 text-white p-2 text-center">
-                    {day}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {times.map(time => (
-                <tr key={time}>
-                  <td className="border p-2 text-sm font-medium bg-gray-50">
-                    {time}
-                  </td>
-                  {days.slice(1).map(day => {
-                    const course = schedule[day]?.[time];
-                    const past = isPast(day, time);
-                    return (
-                      <td
-                        key={`${day}-${time}`}
-                        className={`border p-1 text-center ${!past ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
-                        onClick={() => handleClick(day, time)}
-                      >
-                        {course && (
-                          <div className={`${courseColors[course]} p-2 rounded border text-sm font-medium flex items-center justify-center gap-2`}>
-                            {course === 'Done' ? (
-                              <>
-                                <CheckCircleIcon className="h-5 w-5" />
-                                <span>Done</span>
-                              </>
-                            ) : (
-                              course
-                            )}
-                          </div>
-                        )}
-                      </td>
-                    );
-                  })}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+  <CardHeader className="bg-gray-50 rounded-t-lg">
+    <div className="text-center text-xl font-semibold">
+      {currentDate.toLocaleDateString()} {currentDate.toLocaleTimeString()}
+    </div>
+  </CardHeader>
+  <CardContent className="p-4">
+    <div className="overflow-x-auto">
+      <table className="w-full border-collapse">
+        <thead>
+          <tr>
+            {days.map(day => {
+              const isToday = day === days[currentDate.getDay()];
+              return (
+                <th
+                  key={day}
+                  className={`border p-2 text-center ${
+                    isToday ? 'bg-yellow-100 text-black font-bold' : 'bg-gray-800 text-white'
+                  }`}
+                >
+                  {day}
+                </th>
+              );
+            })}
+          </tr>
+        </thead>
+        <tbody>
+          {times.map(time => (
+            <tr key={time}>
+              <td className="border p-2 text-sm font-medium bg-gray-50">
+                {time}
+              </td>
+              {days.slice(1).map(day => {
+                const course = schedule[day]?.[time];
+                const past = isPast(day, time);
 
-        {/* Attendance Summary */}
-        <div className="mt-4 flex flex-wrap gap-4 justify-center border-t pt-4">
-          {Object.keys(courseColors).map(course => (
-            <div key={course} className="flex flex-col items-center">
-              <span className="text-sm font-medium">{course}</span>
-              <span>Total: {counts[course].total}</span>
-              <span>Present: {counts[course].present}</span>
-              <span>Attendance: {calculateAttendance(course)}%</span>
-            </div>
+                return (
+                  <td
+                    key={`${day}-${time}`}
+                    className={`border p-1 text-center ${
+                      past ? 'cursor-pointer' : 'opacity-50 cursor-not-allowed'
+                    }`}
+                    {...(past && {
+                      onClick: () => handleClick(day, time),
+                    })}
+                  >
+                    {course && (
+                      <div
+                        className={`${courseColors[course]} p-2 rounded border text-sm font-medium flex items-center justify-center gap-2`}
+                      >
+                        {course === 'Done' ? (
+                          <>
+                            <CheckCircleIcon className="h-5 w-5" />
+                            <span>Done</span>
+                          </>
+                        ) : (
+                          course
+                        )}
+                      </div>
+                    )}
+                  </td>
+                );
+              })}
+            </tr>
           ))}
+        </tbody>
+      </table>
+    </div>
+
+
+    <div className="mt-4 flex flex-wrap gap-4 justify-center border-t pt-4">
+      {Object.keys(courseColors).map(course => (
+        <div key={course} className="flex flex-col items-center">
+          <span className="text-sm font-medium">{course}</span>
+          <span>Present: {counts[course]?.present || 0}</span>
         </div>
-      </CardContent>
-    </Card>
+      ))}
+    </div>
+  </CardContent>
+</Card>
   );
 };
 
