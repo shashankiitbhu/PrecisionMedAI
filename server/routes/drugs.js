@@ -6,7 +6,6 @@ require('dotenv').config();
 const FDA_API_URL = process.env.FDA_API_URL;
 const FDA_API_KEY = process.env.FDA_API_KEY;
 
-// Dummy GET endpoint
 router.get('/events', async (req, res) => {
   try {
     const response = await axios.get('https://api.fda.gov/drug/event.json?limit=10');
@@ -72,22 +71,6 @@ router.get('/drug-recalls', async (req, res) => {
     res.status(500).send('Error fetching drug recalls');
   }
 });
-
-const extractDrugData = (data) => {
-  return {
-    drug_name: data.openfda.brand_name || 'N/A',
-    generic_name: data.openfda.generic_name || 'N/A',
-    indications: data.indications_and_usage || 'N/A',
-    dosage: data.dosage_and_administration || 'N/A',
-    warnings: data.warnings || 'N/A',
-    adverse_reactions: data.adverse_reactions || 'N/A',
-    active_ingredient: data.active_ingredient || 'N/A',
-    contraindications: data.contraindications || 'N/A',
-    pharmacologic_class: data.pharmacologic_class || 'N/A',
-    marketing_status: data.openfda.marketing_status || 'N/A',
-    manufacturer: data.openfda.manufacturer_name || 'N/A',
-  };
-}
 
 module.exports = router;
 module.exports = router;
